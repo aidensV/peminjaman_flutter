@@ -1,0 +1,202 @@
+import 'dart:async';
+import 'dart:convert';
+
+
+import 'package:peminjaman/model/item.dart';
+import 'package:peminjaman/model/peminjaman_alat.dart';
+import 'package:peminjaman/utilitis/api_services.dart';
+import 'package:peminjaman/utilitis/shared_prefs.dart';
+import 'package:peminjaman/view/peminjaman/detailitem.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import 'package:multi_select_flutter/multi_select_flutter.dart';
+
+class PeminjamanBarangController extends GetxController {
+  var selectedDate = DateTime.now().obs;
+  TextEditingController tglController = TextEditingController();
+  List<String> options = ["GetX", "Provider", "BloC", "MobX"];
+  late List<ItemsData> listOptions;
+  List<MultiSelectItem<ItemsData>>? dataItems;
+  Rx<List<String>> selectedOptionList = Rx<List<String>>([]);
+  List<ItemsData> listOptionBarang = <ItemsData>[].obs;
+  List<ItemsData> listOptionBarangQty = <ItemsData>[].obs;
+  List<PeminjamanAlat> listPeminjamanAlat = <PeminjamanAlat>[].obs;
+  late  PeminjamanAlat detailPeminjamanAlat;
+
+  var selectedOption = ''.obs;
+  var isLoading = false.obs;
+  var isDataReadingCompleted = false.obs;
+  var resultMessage = ''.obs;
+  Timer? _debounce;
+  @override
+  void onInit() async {
+    //
+     listDataPeminjaman();
+    getBarang();
+    super.onInit();
+   
+    listOptionBarangQty.clear();
+  }
+
+  @override
+  void onReady() {
+    super.onReady();
+    listDataPeminjaman();
+  }
+
+    @override
+  void onClose() {
+    // listDataPeminjaman();
+    _debounce?.cancel();
+    super.onClose();
+  }
+   detailPeminjamanBarang(int id) {
+   detailPeminjamanAlat = listPeminjamanAlat.firstWhere((element) => element.id == id,);
+    Get.to(() =>  DetailPeminjamanBarang());
+  }
+
+  addQtyBarangToArray(String nama, int id, String query) {
+    if (_debounce?.isActive ?? false) _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      listOptionBarangQty.removeWhere((item) => item.id == id);
+      if (int.parse(query) > 0) {
+        listOptionBarangQty.add(
+            ItemsData(id: id, name: nama, qty: int.parse(query), status: ''));
+      }
+      
+    });
+  }
+
+  getBarang() async {
+    SharedPrefs prefs = SharedPrefs();
+    var token = await prefs.getToken();
+    String getToken = token;
+    isLoading.value = true;
+
+    var header = {
+      'Content-type': 'application/json',
+      'Accept': 'application/json',
+      "Authorization": getToken
+    };
+    try {
+      var response = await http.get(Uri.parse(ApiServices.getBarang),headers: header);
+      if (response.statusCode == 200) {
+        Map<String, dynamic> data = jsonDecode(response.body);
+        List result = data['data'];
+        isDataReadingCompleted.value = true;
+        isLoading.value = false;
+        listOptionBarang = result.map((items) => ItemsData.fromJson(items)).toList();
+
+        // for (var element in listOptionBarang) {
+        //   print(element.name);
+        // }
+      }
+    } catch (e) {
+      isLoading.value = false;
+      throw Exception('Unexpected error occured!');
+    }
+  }
+
+  chooseDate() async {
+    DateTime? pickedDate = await showDatePicker(
+        context: Get.context!,
+        initialDate: selectedDate.value,
+        firstDate: DateTime(2000),
+        lastDate: DateTime(2024),
+        //initialEntryMode: DatePickerEntryMode.input,
+        // initialDatePickerMode: DatePickerMode.year,
+        helpText: 'Select DOB',
+        cancelText: 'Close',
+        confirmText: 'Confirm',
+        errorFormatText: 'Enter valid date',
+        errorInvalidText: 'Enter valid date range',
+        fieldLabelText: 'DOB',
+        fieldHintText: 'Month/Date/Year',
+        selectableDayPredicate: disableDate);
+    if (pickedDate != null && pickedDate != selectedDate.value) {
+      String formattedDate = DateFormat('yyyy-MM-dd').format(pickedDate);
+      tglController.text = formattedDate;
+    }
+  }
+
+  bool disableDate(DateTime day) {
+    if ((day.isAfter(DateTime.now().subtract(const Duration(days: 1))) &&
+        day.isBefore(DateTime.now().add(const Duration(days: 5))))) {
+      return true;
+    }
+    return false;
+  }
+listDataPeminjaman() async {
+    SharedPrefs prefs = SharedPrefs();
+    var token = await prefs.getToken();
+    String getToken = token;
+    isLoading.value = true;
+   
+    var header = {
+      // 'Content-type': 'application/json',
+      // 'Accept': 'application/json',
+      "Authorization": getToken
+    };
+   
+    try {
+      var response = await http.get(Uri.parse(ApiServices.listPeminjamanBarang),headers: header);
+      if (response.statusCode == 200) {
+        Map<String, dynamic> data = jsonDecode(response.body);
+        List result = data['data'];
+         listPeminjamanAlat = result.map((items) => PeminjamanAlat.fromJson(items)).toList();
+        isDataReadingCompleted.value = true;
+        isLoading.value = false;
+      } else {
+        isLoading.value = false;
+       
+        resultMessage = 'terjadi kesalahan' as RxString;
+      }
+    } catch (e) {
+      
+      //  resultMessage = ;
+      isLoading.value = false;
+    }
+  }
+
+  saveData() async{
+     SharedPrefs prefs = SharedPrefs();
+    var token = await prefs.getToken();
+    String getToken = token;
+    isLoading.value = true;
+     var bodyBarangJson = jsonEncode(listOptionBarangQty.map((e) => e.toJson()).toList());
+        var header = {
+      // 'Content-type': 'application/json',
+      // 'Accept': 'application/json',
+      "Authorization": getToken
+    };
+    Map<String, dynamic> body = {
+      'barang': bodyBarangJson,
+      "tgl_trx": tglController.text
+    };
+    try {
+      var response =
+          await http.post(Uri.parse(ApiServices.saveBarang),headers: header, body: body);
+      if (response.statusCode == 200) {
+      
+        Map<String, dynamic> data = jsonDecode(response.body);
+        var result = data['data'];
+        if (result != null) {
+         
+          isDataReadingCompleted.value = true;
+          isLoading.value = false;
+          resultMessage = data["message"];
+        } 
+      }else{
+        isLoading.value = false;
+
+        resultMessage = 'terjadi kesalahan' as RxString;
+      }
+    } catch (e) {
+      //  resultMessage = ;
+      isLoading.value = false;
+      
+    }
+  }
+}
